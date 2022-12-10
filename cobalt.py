@@ -158,6 +158,7 @@ class Cobalt:
 
             if "text" in message[message_key]:
                 self.text = message[message_key]['text']
+                
             if message_key == "my_chat_member":
                 self.status = Cobalt.Message.Status(
                     message[message_key]['new_chat_member']['status'], message[message_key]['old_chat_member']['status'])
@@ -256,8 +257,8 @@ class Database:
 
     def remove_chat(self, message: Cobalt.Message) -> bool:
         with Session(self.engine) as session:
-            session.query(Link).filter_by(chat_id='-1001809865931').delete()
-            session.query(Chat).filter_by(chat_id='-1001809865931').delete()
+            session.query(Link).filter_by(chat_id=message.chat.id).delete()
+            session.query(Chat).filter_by(chat_id=message.chat.id).delete()
             session.commit()
             return True
 
