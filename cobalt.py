@@ -14,6 +14,7 @@ import requests
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Union
+from collections import defaultdict
 
 Base = declarative_base()
 
@@ -22,6 +23,7 @@ TOKEN = "<telegram-token>"
 WE_BOT_UID = "<we-uid>"
 SERVER_URL = "<server-url>"
 
+
 class User(Base):
     __tablename__ = "users"
 
@@ -29,12 +31,15 @@ class User(Base):
     user_id = Column(Integer, nullable=False)
     state = Column(String, nullable=False)
 
-    links = relationship("Link", back_populates="user", cascade="all, delete-orphan")
-    chats = relationship("Chat", back_populates="user", cascade="all, delete-orphan")
+    links = relationship("Link", back_populates="user",
+                         cascade="all, delete-orphan")
+    chats = relationship("Chat", back_populates="user",
+                         cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"User(id={self.id!r}, user_id={self.user_id!r}, state={self.state!r})"
-    
+
+
 class Link(Base):
     __tablename__ = "links"
 
@@ -48,7 +53,8 @@ class Link(Base):
 
     def __repr__(self) -> str:
         return f"Link(id={self.id!r}, tg_id={self.chat_id!r}, we_id={self.we_id!r}), user_id={self.user_id!r}"
-    
+
+
 class Chat(Base):
     __tablename__ = "chats"
 
@@ -64,6 +70,7 @@ class Chat(Base):
 
     def __repr__(self) -> str:
         return f"Chat(chat_id={self.chat_id!r}, title={self.title!r}, type={self.type!r})"
+
 
 class Cobalt:
     class Message:
@@ -100,21 +107,23 @@ class Cobalt:
             username: Optional[str] = None
             all_members_are_administrators: Optional[bool] = None
 
+            types_in_fa = defaultdict(
+                lambda: "",
+                {
+                    "private": "خصوصی",
+                    "group": "گروه",
+                    "supergroup": "سوپرگروه",
+                    "channel": "کانال"
+                }
+            )
+
             @property
             def type_fa(self) -> str:
-                if self.type == "private":
-                    return "خصوصی"
-                elif self.type == "group":
-                    return "گروه"
-                elif self.type == "supergroup":
-                    return "سوپرگروه"
-                elif self.type == "channel":
-                    return "کانال"
-                else:
-                    return ""
+                return self.types_in_fa[self.type]
 
-        def __init__(self, message):
-            self.update_id = message['update_id']
+        def __init__(self, message: dict):
+            self.update_id: int = message['update_id']
+
             message_key = ""
             if "message" in message:
                 message_key = "message"
@@ -125,19 +134,19 @@ class Cobalt:
             elif "channel_post" in message:
                 message_key = "channel_post"
                 self.type = Cobalt.Message.Type.ChannelPost
-                    
+
             if "message_id" in message[message_key]:
                 self.message_id = message[message_key]['message_id']
-                
+
             if self.type == Cobalt.Message.Type.ChannelPost:
                 user_key = "sender_chat"
             else:
                 user_key = "from"
-            self.user: Cobalt.Message.User = Cobalt.Message.User(
-                **message[message_key][user_key])
-            self.chat: Cobalt.Message.Chat = Cobalt.Message.Chat(
-                **message[message_key]['chat'])
+
+            self.user = Cobalt.Message.User(**message[message_key][user_key])
+            self.chat = Cobalt.Message.Chat(**message[message_key]['chat'])
             self.date = message[message_key]['date']
+
             self._is_command = (
                 'message' in message
                 and 'entities' in message['message']
@@ -159,35 +168,35 @@ class Cobalt:
 
         def is_command(self, cmd_name: Optional[str] = None) -> bool:
             return self.type == Cobalt.Message.Type.Command and (cmd_name is None or self.text == '/' + cmd_name.lstrip('/'))
-        
+
     class WeBot:
-        
+
         chat_type = {'2': "GROUP", '3': "CHANNEL"}
-        
+
         def __init__(self, we_bot_uid: str):
             self.we_bot_uid = we_bot_uid
             self.url = f"https://api.wemessenger.ir/v2/{self.we_bot_uid}/sendMessage"
             self.headers = {
                 'Content-Type': 'application/json'
             }
-            
-        
+
         def send_message(self, chat_id: str, text: str) -> bytes:
-            
-            chat_data =  chat_id.split(':')
+
+            chat_data = chat_id.split(':')
             data = json.dumps({
                 "to": {
-                "category": Cobalt.WeBot.chat_type[chat_data[0]],
-                "node": chat_data[1],
-                "session_id": "*"
+                    "category": Cobalt.WeBot.chat_type[chat_data[0]],
+                    "node": chat_data[1],
+                    "session_id": "*"
                 },
                 "text": {
-                "text": text
+                    "text": text
                 }
             })
 
-            response = requests.request("POST", self.url, headers=self.headers, data=data)
-            
+            response = requests.request(
+                "POST", self.url, headers=self.headers, data=data)
+
             return response.text.encode('utf8')
 
     def __init__(self, token: str, server_url: Optional[str] = None):
@@ -221,36 +230,37 @@ class Cobalt:
             'text': text
         }
         return requests.post(url, json=json).json()
-        
+
+
 class Database:
     def __init__(self, database_name: str):
         self.engine = create_engine(database_name, echo=False, future=True)
-        
+
     def add_chat(self, message: Cobalt.Message) -> bool:
         with Session(self.engine) as session:
-                chat = session.query(Chat).filter_by(chat_id="11").first()
-                if chat is not None:
-                        return False
-                
-                session.add(
-                            Chat(
-                            chat_id=message.chat.id,
-                            username=message.chat.username,
-                            title=message.chat.title,
-                            type=message.chat.type,
-                            user_id=message.user.id
-                            )
-                        )
-                session.commit()
-                return True
-                
+            chat = session.query(Chat).filter_by(chat_id="11").first()
+            if chat is not None:
+                return False
+
+            session.add(
+                Chat(
+                    chat_id=message.chat.id,
+                    username=message.chat.username,
+                    title=message.chat.title,
+                    type=message.chat.type,
+                    user_id=message.user.id
+                )
+            )
+            session.commit()
+            return True
+
     def remove_chat(self, message: Cobalt.Message) -> bool:
         with Session(self.engine) as session:
             session.query(Link).filter_by(chat_id='-1001809865931').delete()
             session.query(Chat).filter_by(chat_id='-1001809865931').delete()
             session.commit()
             return True
-            
+
     def get_user_chats(self, user_id: str) -> str:
         with Session(self.engine) as session:
             user = session.query(Chat).filter_by(user_id=user_id).all()
@@ -258,7 +268,7 @@ class Database:
                 return ""
             data = session.query(Chat).with_entities(Chat.title).all()
             return "\n".join(map(lambda y: f"{y[0]}. {y[1]}", enumerate(map(lambda x: x[0], data), 1)))
-        
+
     def set_user_state(self, user_id: str, state: str) -> bool:
         with Session(self.engine) as session:
             user = session.query(User).filter_by(user_id=user_id).first()
@@ -268,31 +278,32 @@ class Database:
                 user.state = state
             session.commit()
             return True
-        
+
     def get_user_state(self, user_id: str) -> str:
         with Session(self.engine) as session:
             user = session.query(User).filter_by(user_id=user_id).first()
             if user is None:
                 return ""
             return user.state
-        
+
     def add_link(self, user_id: Optional[str], title: str) -> bool:
         with Session(self.engine) as session:
             chat = (
-                    session
-                    .query(Chat)
-                    .where((Chat.user_id==user_id) | (Chat.username == title if title[0] == "@" else Chat.title == title))
-                    .first()
-                    )
+                session
+                .query(Chat)
+                .where((Chat.user_id == user_id) | (Chat.username == title if title[0] == "@" else Chat.title == title))
+                .first()
+            )
             if chat is None:
                 return False
             session.add(Link(chat_id=chat.chat_id, user_id=user_id))
             session.commit()
             return True
-        
+
     def add_we_id_to_link(self, user_id: Optional[str], we_id: str) -> bool:
         with Session(self.engine) as session:
-            link = session.query(Link).where((Link.user_id==user_id) & (Link.we_id==None)).order_by(Link.id.desc()).first()
+            link = session.query(Link).where((Link.user_id == user_id) & (
+                Link.we_id == None)).order_by(Link.id.desc()).first()
             if link is None:
                 return False
             link.we_id = we_id
@@ -306,6 +317,7 @@ class Database:
                 return map(lambda x: x, [])
             return filter(lambda x: x is not None, map(lambda x: x.we_id, links))
 
+
 app = Flask(__name__)
 
 
@@ -318,7 +330,7 @@ def index():
     else:
         bot = Cobalt(token=TOKEN)
         db = Database(DATABASE_NAME)
-        if bot.message.chat.type == "private" and bot.message.chat.id == bot.message.user.id: # private chat
+        if bot.message.chat.type == "private" and bot.message.chat.id == bot.message.user.id:  # private chat
             if bot.message.is_command('start'):
                 bot.send_message(
                     text="به ربات اتصال تلگرام به وی خوش آمدید. این ربات به منظور ایجاد یک ارتباط یک طرفه تلگرام با پیام‌رسان وی می‌باشد. "
@@ -334,9 +346,11 @@ def index():
             elif db.get_user_state(bot.message.user.id) == "add_link":
                 if db.add_link(bot.message.user.id, bot.message.text):
                     db.set_user_state(bot.message.user.id, "add_link_we_part")
-                    bot.send_message("اکنون شناسه مربوط به کانال یا گروه پیام‌رسان وی را وارد نمایید")
+                    bot.send_message(
+                        "اکنون شناسه مربوط به کانال یا گروه پیام‌رسان وی را وارد نمایید")
                 else:
-                    bot.send_message("کانال یا گروهی با چنین عنوان یا شناسه‌ایی وجود ندارد")
+                    bot.send_message(
+                        "کانال یا گروهی با چنین عنوان یا شناسه‌ایی وجود ندارد")
             elif db.get_user_state(bot.message.user.id) == "add_link_we_part":
                 if db.add_we_id_to_link(bot.message.user.id, bot.message.text):
                     bot.send_message("لینک با موفقیت اضافه شد")
@@ -368,5 +382,6 @@ def index():
                     we_bot.send_message(we_id, bot.message.text)
 
         return Response('OK', status=200)
+
 
 app.run(debug=True)
