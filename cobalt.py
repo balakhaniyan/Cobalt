@@ -311,11 +311,11 @@ class Database:
             session.commit()
             return True
 
-    def get_we_clients(self, chat_id: Optional[int]) -> Union[filter, map]:
+    def get_we_clients(self, chat_id: Optional[int]) -> Union[filter, list]:
         with Session(self.engine) as session:
             links = session.query(Link).filter_by(chat_id=chat_id).all()
             if links is None:
-                return map(lambda x: x, [])
+                return []
             return filter(lambda x: x is not None, map(lambda x: x.we_id, links))
 
 
